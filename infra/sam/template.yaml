@@ -1,0 +1,297 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  LoopIn – Campus Sharing Platform
+  Serverless Architecture:
+  - Backend: AWS Lambda (Function URL)
+  - Database: Amazon DynamoDB (Single-table)
+  - Reminders: Amazon EventBridge Scheduler
+  - Notifications: Amazon SNS
+  (No API Gateway, Cognito, or S3)
+
+# ── Parameters ────────────────────────────────────────────────────────────────
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment name
+
+  FrontendOrigin:
+    Type: String
+    Default: "https://loopin-campus.netlify.app"
+    Description: |
+      Exact browser origin of the deployed Netlify frontend (e.g. https://your-site.netlify.app).
+      Used for strict Lambda Function URL CORS restriction. Never use "*" in production.
+
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    Description: |
+      Secret key used to cryptographically sign and verify backend session JWT tokens.
+      Must be a long random string (at least 32 characters).
+    Default: "loopin-production-jwt-secret-replace-with-secure-value-32chars"
+
+# ── Globals ────────────────────────────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Timeout: 30
+    MemorySize: 256
+    Architectures: [arm64]
+    Environment:
+      Variables:
+        DYNAMODB_TABLE_NAME: !Sub "loopin-${Environment}"
+        AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+        ALLOWED_ORIGIN: !Ref FrontendOrigin
+        STORAGE_DRIVER: "dynamodb"
+    Tracing: Active
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── DynamoDB Table (single-table design) ──────────────────────────────────
+  Table:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "loopin-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: campusId
+          AttributeType: S
+        - AttributeName: itemStatusSK
+          AttributeType: S
+        - AttributeName: borrowerId
+          AttributeType: S
+        - AttributeName: loanStatusSK
+          AttributeType: S
+        - AttributeName: lenderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1-Campus-Items
+          KeySchema:
+            - AttributeName: campusId
+              KeyType: HASH
+            - AttributeName: itemStatusSK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI2-Borrower-Loans
+          KeySchema:
+            - AttributeName: borrowerId
+              KeyType: HASH
+            - AttributeName: loanStatusSK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI3-Lender-Loans
+          KeySchema:
+            - AttributeName: lenderId
+              KeyType: HASH
+            - AttributeName: loanStatusSK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ── SNS Notifications Topic ────────────────────────────────────────────────
+  NotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "loopin-notifications-${Environment}"
+      DisplayName: "LoopIn Campus Sharing Notifications"
+
+  # ── EventBridge Scheduler Group ────────────────────────────────────────────
+  ReminderScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+    Properties:
+      Name: !Sub "loopin-reminders-${Environment}"
+
+  # ── IAM Role: EventBridge Scheduler Execution Role ──────────────────────────
+  SchedulerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "loopin-scheduler-exec-role-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeReminderLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt RemindersFunction.Arn
+                  - !Sub "${RemindersFunction.Arn}:*"
+
+  # ── Lambda: Return Reminders Processor (Invoked by EventBridge) ────────────
+  RemindersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "loopin-reminders-${Environment}"
+      CodeUri: ../../backend/
+      Handler: dist/handlers/reminders.handler
+      Role: !GetAtt RemindersFunctionRole.Arn
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref NotificationsTopic
+          NOTIFICATIONS_TOPIC_ARN: !Ref NotificationsTopic
+          DYNAMODB_TABLE_NAME: !Ref Table
+          SIMULATION_MODE: "false"
+
+  RemindersFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "loopin-reminders-role-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: DynamoDBReadWriteAndSNSPublish
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:PutItem
+                  - dynamodb:ConditionCheckItem
+                Resource:
+                  - !GetAtt Table.Arn
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref NotificationsTopic
+
+  # ── Lambda: Main API Backend with Function URL ─────────────────────────────
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "loopin-api-${Environment}"
+      CodeUri: ../../backend/
+      Handler: dist/handlers/api.handler
+      Role: !GetAtt ApiFunctionRole.Arn
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - !Ref FrontendOrigin
+          AllowMethods:
+            - GET
+            - POST
+            - PUT
+            - PATCH
+            - DELETE
+          AllowHeaders:
+            - Authorization
+            - Content-Type
+            - X-Requested-With
+          MaxAge: 86400
+      Environment:
+        Variables:
+          ALLOWED_ORIGIN: !Ref FrontendOrigin
+          JWT_SECRET: !Ref JwtSecret
+          DYNAMODB_TABLE_NAME: !Ref Table
+          SNS_TOPIC_ARN: !Ref NotificationsTopic
+          NOTIFICATIONS_TOPIC_ARN: !Ref NotificationsTopic
+          REMINDER_SCHEDULE_GROUP: !Ref ReminderScheduleGroup
+          REMINDER_LAMBDA_ARN: !GetAtt RemindersFunction.Arn
+          SCHEDULER_EXECUTION_ROLE_ARN: !GetAtt SchedulerExecutionRole.Arn
+          STORAGE_DRIVER: dynamodb
+          SIMULATION_MODE: "false"
+
+  ApiFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "loopin-api-role-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: DynamoDBSNSAndSchedulerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # DynamoDB Least-Privilege Data Access
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:ConditionCheckItem
+                Resource:
+                  - !GetAtt Table.Arn
+                  - !Sub "${Table.Arn}/index/*"
+              # Amazon SNS Topic Publishing
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref NotificationsTopic
+              # Amazon EventBridge Scheduler Creation & Management
+              - Effect: Allow
+                Action:
+                  - scheduler:CreateSchedule
+                  - scheduler:DeleteSchedule
+                  - scheduler:GetSchedule
+                Resource:
+                  - !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${ReminderScheduleGroup}/*"
+              # Allow Passing Scheduler Execution Role to EventBridge
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt SchedulerExecutionRole.Arn
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+Outputs:
+  ApiFunctionUrl:
+    Description: Direct AWS Lambda Function URL — configure as VITE_API_BASE_URL on Netlify
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+
+  TableName:
+    Description: Amazon DynamoDB Table Name
+    Value: !Ref Table
+
+  NotificationsTopicArn:
+    Description: Amazon SNS Notifications Topic ARN
+    Value: !Ref NotificationsTopic
+
+  ReminderScheduleGroupName:
+    Description: Amazon EventBridge Scheduler Group Name
+    Value: !Ref ReminderScheduleGroup

@@ -1,0 +1,34 @@
+{
+  "name": "@loopin/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --no-warnings --loader ts-node/esm src/devServer.ts",
+    "start": "node dist/devServer.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.717.0",
+    "@aws-sdk/client-scheduler": "^3.717.0",
+    "@aws-sdk/client-sns": "^3.717.0",
+    "@aws-sdk/lib-dynamodb": "^3.717.0",
+    "@loopin/shared": "*",
+    "aws-jwt-verify": "^5.2.1",
+    "aws-lambda": "^1.0.7",
+    "uuid": "^11.0.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.147",
+    "@types/node": "^24.13.3",
+    "@types/uuid": "^10.0.0",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2",
+    "vitest": "^3.0.0"
+  }
+}

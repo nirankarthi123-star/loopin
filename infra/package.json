@@ -1,0 +1,10 @@
+{
+  "name": "@loopin/infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "validate": "sam validate --template sam/template.yaml --lint",
+    "build-sam": "sam build --template sam/template.yaml",
+    "package": "sam package --template sam/template.yaml --output-template-file packaged.yaml"
+  }
+}

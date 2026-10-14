@@ -1,0 +1,34 @@
+{
+  "name": "loopin",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LoopIn – Need it? Loop it. Campus-sharing platform for students.",
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "shared",
+    "tests",
+    "infra"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=frontend",
+    "dev:backend": "npm run build --workspace=backend && npm run start --workspace=backend",
+    "build": "npm run build --workspace=shared && npm run build --workspace=frontend && npm run build --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "build:backend": "npm run build --workspace=backend",
+    "typecheck": "npm run typecheck --workspace=shared && npm run typecheck --workspace=frontend && npm run typecheck --workspace=backend && npm run typecheck --workspace=tests",
+    "typecheck:frontend": "npm run typecheck --workspace=frontend",
+    "typecheck:backend": "npm run typecheck --workspace=backend",
+    "lint": "npm run lint --workspace=frontend && npm run lint --workspace=backend",
+    "test": "npm run test --workspace=tests",
+    "test:unit": "npm run test:unit --workspace=tests",
+    "test:integration": "npm run test:integration --workspace=tests",
+    "infra:validate": "npm run validate --workspace=infra",
+    "clean": "Get-ChildItem -Recurse -Directory -Filter node_modules | Remove-Item -Recurse -Force"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

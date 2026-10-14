@@ -1,0 +1,22 @@
+{
+  "name": "@loopin/tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:unit": "vitest run --reporter=verbose unit/",
+    "test:integration": "vitest run --reporter=verbose integration/",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@loopin/shared": "*",
+    "@loopin/backend": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "~6.0.2",
+    "vitest": "^3.0.0"
+  }
+}

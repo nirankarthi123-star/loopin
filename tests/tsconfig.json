@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node", "vitest/globals"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "paths": {
+      "@loopin/backend/*": ["../backend/src/*"]
+    }
+  },
+  "include": ["unit", "integration", "vitest.config.ts"]
+}
