@@ -1,9 +1,12 @@
-import { defineConfig } from "vite";
+﻿import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
-// https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages hosts this repository under /loopin/.
+  // Keep the normal root path for local development.
+  base: process.env["VITE_BASE_PATH"] ?? "/",
+
   plugins: [react()],
   resolve: {
     alias: {
